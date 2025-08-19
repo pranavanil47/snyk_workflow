@@ -24,7 +24,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # ============= AUTO-DETECT AND SETUP LANGUAGES =============
+      # AUTO-DETECT AND SETUP LANGUAGES
       
       - name: Setup Node.js
         if: hashFiles('**/package.json') != ''
@@ -57,7 +57,7 @@ jobs:
         with:
           ruby-version: '3.1'
 
-      # ============= SNYK SETUP =============
+      # SNYK SETUP
       
       - name: Install Snyk CLI
         run: |
@@ -78,16 +78,16 @@ jobs:
         id: timestamp
         run: echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
 
-      # ============= SMART DEPENDENCY INSTALLATION =============
+      # SMART DEPENDENCY INSTALLATION
       
       - name: Install dependencies
         continue-on-error: true
         run: |
-          echo "🔍 Auto-detecting and installing dependencies..."
+          echo "Auto-detecting and installing dependencies..."
           
           # Node.js projects
           if find . -name "package.json" -not -path "./node_modules/*" | head -1 | grep -q .; then
-            echo "📦 Installing Node.js dependencies..."
+            echo "Installing Node.js dependencies..."
             if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
               npm ci
             else
@@ -97,57 +97,57 @@ jobs:
           
           # Python projects
           if find . -name "requirements.txt" | head -1 | grep -q .; then
-            echo "🐍 Installing Python dependencies..."
+            echo "Installing Python dependencies..."
             find . -name "requirements.txt" -exec pip install -r {} \;
           elif find . -name "pyproject.toml" | head -1 | grep -q .; then
-            echo "🐍 Installing Python project..."
+            echo "Installing Python project..."
             pip install .
           fi
           
           # Java Maven projects
           if find . -name "pom.xml" | head -1 | grep -q .; then
-            echo "☕ Building Java Maven projects..."
+            echo "Building Java Maven projects..."
             find . -name "pom.xml" -execdir mvn clean install -DskipTests \;
           fi
           
           # Java Gradle projects
           if find . -name "build.gradle*" | head -1 | grep -q .; then
-            echo "☕ Building Java Gradle projects..."
+            echo "Building Java Gradle projects..."
             find . -name "gradlew" -execdir ./gradlew build -x test \;
           fi
           
           # Go projects
           if find . -name "go.mod" | head -1 | grep -q .; then
-            echo "🐹 Downloading Go dependencies..."
+            echo "Downloading Go dependencies..."
             find . -name "go.mod" -execdir go mod download \;
           fi
           
           # Ruby projects
           if find . -name "Gemfile" | head -1 | grep -q .; then
-            echo "💎 Installing Ruby dependencies..."
+            echo "Installing Ruby dependencies..."
             find . -name "Gemfile" -execdir bundle install \;
           fi
           
           # PHP projects
           if find . -name "composer.json" | head -1 | grep -q .; then
-            echo "🐘 Installing PHP dependencies..."
+            echo "Installing PHP dependencies..."
             find . -name "composer.json" -execdir composer install --no-dev \;
           fi
           
           # Rust projects
           if find . -name "Cargo.toml" | head -1 | grep -q .; then
-            echo "🦀 Building Rust projects..."
+            echo "Building Rust projects..."
             find . -name "Cargo.toml" -execdir cargo build --release \;
           fi
 
-      # ============= SNYK CODE SCAN (SAST) =============
+      # SNYK CODE SCAN (SAST)
 
       - name: Run Snyk Code Scan (SAST)
         id: snyk_code
         continue-on-error: true
         run: |
           TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
-          echo "🔍 Running Snyk Code Analysis (SAST)..."
+          echo "Running Snyk Code Analysis (SAST)..."
           snyk code test \
             --all-projects \
             --json \
@@ -156,12 +156,12 @@ jobs:
             || true
           echo "code_file=snyk-code-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-      # ============= CONTAINER SCANNING =============
+      # CONTAINER SCANNING
 
       - name: Build Docker images for container scan
         continue-on-error: true
         run: |
-          echo "🐳 Building Docker images for container scanning..."
+          echo "Building Docker images for container scanning..."
           IMAGES_BUILT=false
           
           # Build from existing Dockerfiles
@@ -180,7 +180,7 @@ jobs:
             
             if [ -f package.json ]; then
               echo "Creating Node.js Dockerfile..."
-              cat > Dockerfile << 'EOF'
+              cat > Dockerfile << EOF
 FROM node:18-alpine
 WORKDIR /app
 COPY package*.json ./
@@ -190,7 +190,7 @@ CMD ["npm", "start"]
 EOF
             elif find . -name "requirements.txt" | head -1 | grep -q .; then
               echo "Creating Python Dockerfile..."
-              cat > Dockerfile << 'EOF'
+              cat > Dockerfile << EOF
 FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt ./
@@ -200,7 +200,7 @@ CMD ["python", "app.py"]
 EOF
             elif find . -name "pom.xml" | head -1 | grep -q .; then
               echo "Creating Java Dockerfile..."
-              cat > Dockerfile << 'EOF'
+              cat > Dockerfile << EOF
 FROM openjdk:11-jre-slim
 WORKDIR /app
 COPY target/*.jar app.jar 2>/dev/null || COPY . .
@@ -208,7 +208,7 @@ CMD ["java", "-jar", "app.jar"]
 EOF
             elif find . -name "go.mod" | head -1 | grep -q .; then
               echo "Creating Go Dockerfile..."
-              cat > Dockerfile << 'EOF'
+              cat > Dockerfile << EOF
 FROM golang:1.21-alpine AS builder
 WORKDIR /app
 COPY go.* ./
@@ -222,7 +222,7 @@ CMD ["./main"]
 EOF
             else
               echo "Creating generic Dockerfile..."
-              cat > Dockerfile << 'EOF'
+              cat > Dockerfile << EOF
 FROM alpine:latest
 WORKDIR /app
 RUN apk add --no-cache curl
@@ -245,7 +245,7 @@ EOF
           TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
           mkdir -p security-reports/container
           
-          echo "🐳 Scanning Docker containers for vulnerabilities..."
+          echo "Scanning Docker containers for vulnerabilities..."
           
           # Scan all built images
           SCANNED_IMAGES=""
@@ -263,14 +263,14 @@ EOF
           echo "{\"timestamp\": \"${TIMESTAMP}\", \"scanned_images\": $SCAN_SUMMARY}" > security-reports/snyk-container-${TIMESTAMP}.json
           echo "container_file=snyk-container-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-      # ============= DEPENDENCY SCANNING =============
+      # DEPENDENCY SCANNING
 
       - name: Run Snyk Open Source Scan
         id: snyk_open_source
         continue-on-error: true
         run: |
           TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
-          echo "📦 Scanning dependencies for vulnerabilities..."
+          echo "Scanning dependencies for vulnerabilities..."
           snyk test \
             --all-projects \
             --json \
@@ -279,14 +279,14 @@ EOF
             || true
           echo "deps_file=snyk-dependencies-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-      # ============= SBOM GENERATION =============
+      # SBOM GENERATION
 
       - name: Generate SBOM with Snyk
         id: snyk_sbom
         continue-on-error: true
         run: |
           TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
-          echo "📋 Generating Software Bill of Materials (SBOM)..."
+          echo "Generating Software Bill of Materials (SBOM)..."
           snyk sbom \
             --all-projects \
             --format=spdx2.3+json \
@@ -294,7 +294,7 @@ EOF
             || true
           echo "sbom_file=snyk-sbom-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-      # ============= UPLOAD RESULTS TO VM =============
+      # UPLOAD RESULTS TO VM
 
       - name: Upload Snyk Code results to VM
         if: steps.snyk_code.outputs.code_file
@@ -330,34 +330,34 @@ EOF
           scp -i ~/.ssh/id_rsa security-reports/$FILE_NAME \
             pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_SBOM/
 
-      # ============= SUMMARY AND REPORTING =============
+      # SUMMARY AND REPORTING
 
       - name: Scan Summary
         run: |
-          echo "🔐 === Snyk Security Scans Completed ==="
-          echo "⏰ Timestamp: ${{ steps.timestamp.outputs.timestamp }}"
-          echo "📁 Repository: ${{ github.repository }}"
+          echo "=== Snyk Security Scans Completed ==="
+          echo "Timestamp: ${{ steps.timestamp.outputs.timestamp }}"
+          echo "Repository: ${{ github.repository }}"
           echo ""
-          echo "🔍 Detected Project Types:"
-          find . -name "package.json" -not -path "./node_modules/*" | head -1 | grep -q . && echo "  ✅ Node.js"
-          find . -name "requirements.txt" -o -name "pyproject.toml" | head -1 | grep -q . && echo "  ✅ Python"
-          find . -name "pom.xml" | head -1 | grep -q . && echo "  ✅ Java (Maven)"
-          find . -name "build.gradle*" | head -1 | grep -q . && echo "  ✅ Java (Gradle)"
-          find . -name "go.mod" | head -1 | grep -q . && echo "  ✅ Go"
-          find . -name "Gemfile" | head -1 | grep -q . && echo "  ✅ Ruby"
-          find . -name "composer.json" | head -1 | grep -q . && echo "  ✅ PHP"
-          find . -name "Cargo.toml" | head -1 | grep -q . && echo "  ✅ Rust"
-          find . -name "*.tf" -o -name "*.yaml" -o -name "*.yml" | head -1 | grep -q . && echo "  ✅ Infrastructure/Config Files"
+          echo "Detected Project Types:"
+          find . -name "package.json" -not -path "./node_modules/*" | head -1 | grep -q . && echo "  Node.js detected"
+          find . -name "requirements.txt" -o -name "pyproject.toml" | head -1 | grep -q . && echo "  Python detected"
+          find . -name "pom.xml" | head -1 | grep -q . && echo "  Java (Maven) detected"
+          find . -name "build.gradle*" | head -1 | grep -q . && echo "  Java (Gradle) detected"
+          find . -name "go.mod" | head -1 | grep -q . && echo "  Go detected"
+          find . -name "Gemfile" | head -1 | grep -q . && echo "  Ruby detected"
+          find . -name "composer.json" | head -1 | grep -q . && echo "  PHP detected"
+          find . -name "Cargo.toml" | head -1 | grep -q . && echo "  Rust detected"
+          find . -name "*.tf" -o -name "*.yaml" -o -name "*.yml" | head -1 | grep -q . && echo "  Infrastructure/Config Files detected"
           echo ""
-          echo "📊 Scan Results:"
-          echo "  🔍 Code Scan (SAST): ${{ steps.snyk_code.outputs.code_file || '❌ Failed/Skipped' }}"
-          echo "  🐳 Container Scan: ${{ steps.snyk_container.outputs.container_file || '❌ Failed/Skipped' }}"
-          echo "  📦 Dependencies Scan: ${{ steps.snyk_open_source.outputs.deps_file || '❌ Failed/Skipped' }}"
-          echo "  📋 SBOM Generation: ${{ steps.snyk_sbom.outputs.sbom_file || '❌ Failed/Skipped' }}"
+          echo "Scan Results:"
+          echo "  Code Scan (SAST): ${{ steps.snyk_code.outputs.code_file || 'Failed/Skipped' }}"
+          echo "  Container Scan: ${{ steps.snyk_container.outputs.container_file || 'Failed/Skipped' }}"
+          echo "  Dependencies Scan: ${{ steps.snyk_open_source.outputs.deps_file || 'Failed/Skipped' }}"
+          echo "  SBOM Generation: ${{ steps.snyk_sbom.outputs.sbom_file || 'Failed/Skipped' }}"
           echo ""
-          echo "📤 Results uploaded to: 34.57.235.175"
+          echo "Results uploaded to: 34.57.235.175"
 
-      # ============= PR COMMENT (OPTIONAL) =============
+      # PR COMMENT (OPTIONAL)
 
       - name: Comment PR with scan results
         if: github.event_name == 'pull_request'
@@ -375,10 +375,10 @@ EOF
               '**Repository:** ${{ github.repository }}\n\n' +
               '| Scan Type | Status | File |\n' +
               '|-----------|--------|----- |\n' +
-              '| SAST | ' + (codeFile !== 'Failed/Skipped' ? '✅' : '❌') + ' | `' + codeFile + '` |\n' +
-              '| Container | ' + (containerFile !== 'Failed/Skipped' ? '✅' : '❌') + ' | `' + containerFile + '` |\n' +
-              '| Dependencies | ' + (depsFile !== 'Failed/Skipped' ? '✅' : '❌') + ' | `' + depsFile + '` |\n' +
-              '| SBOM | ' + (sbomFile !== 'Failed/Skipped' ? '✅' : '❌') + ' | `' + sbomFile + '` |\n\n' +
+              '| SAST | ' + (codeFile !== 'Failed/Skipped' ? 'Success' : 'Failed') + ' | `' + codeFile + '` |\n' +
+              '| Container | ' + (containerFile !== 'Failed/Skipped' ? 'Success' : 'Failed') + ' | `' + containerFile + '` |\n' +
+              '| Dependencies | ' + (depsFile !== 'Failed/Skipped' ? 'Success' : 'Failed') + ' | `' + depsFile + '` |\n' +
+              '| SBOM | ' + (sbomFile !== 'Failed/Skipped' ? 'Success' : 'Failed') + ' | `' + sbomFile + '` |\n\n' +
               '**Results uploaded to:** 34.57.235.175\n\n' +
               'Review the detailed security reports in the uploaded files for vulnerabilities.';
             
