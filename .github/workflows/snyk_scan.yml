@@ -65,19 +65,51 @@ jobs:
       - name: Build Docker image for container scan
         continue-on-error: true
         run: |
-          # Check if Dockerfile exists, if not create a simple one for scanning
+          # Check if Dockerfile exists, if not create one based on project type
           if [ ! -f Dockerfile ]; then
-            echo "FROM node:18-alpine" > Dockerfile
-            echo "WORKDIR /app" >> Dockerfile
-            echo "COPY package*.json ./" >> Dockerfile
-            # Use npm install instead of npm ci if package-lock.json doesn't exist
-            if [ -f package-lock.json ]; then
-              echo "RUN npm ci --only=production" >> Dockerfile
+            if [ -f package.json ]; then
+              # Node.js project
+              echo "FROM node:18-alpine" > Dockerfile
+              echo "WORKDIR /app" >> Dockerfile
+              echo "COPY package*.json ./" >> Dockerfile
+              if [ -f package-lock.json ]; then
+                echo "RUN npm ci --only=production" >> Dockerfile
+              else
+                echo "RUN npm install --only=production" >> Dockerfile
+              fi
+              echo "COPY . ." >> Dockerfile
+              echo "CMD [\"npm\", \"start\"]" >> Dockerfile
+            elif [ -f requirements.txt ]; then
+              # Python project
+              echo "FROM python:3.11-slim" > Dockerfile
+              echo "WORKDIR /app" >> Dockerfile
+              echo "COPY requirements.txt ." >> Dockerfile
+              echo "RUN pip install --no-cache-dir -r requirements.txt" >> Dockerfile
+              echo "COPY . ." >> Dockerfile
+              echo "CMD [\"python\", \"app.py\"]" >> Dockerfile
+            elif [ -f pom.xml ]; then
+              # Java Maven project
+              echo "FROM openjdk:11-jre-slim" > Dockerfile
+              echo "WORKDIR /app" >> Dockerfile
+              echo "COPY pom.xml ." >> Dockerfile
+              echo "COPY target/*.jar app.jar" >> Dockerfile
+              echo "CMD [\"java\", \"-jar\", \"app.jar\"]" >> Dockerfile
+            elif [ -f Gemfile ]; then
+              # Ruby project
+              echo "FROM ruby:3.1-slim" > Dockerfile
+              echo "WORKDIR /app" >> Dockerfile
+              echo "COPY Gemfile Gemfile.lock ./" >> Dockerfile
+              echo "RUN bundle install" >> Dockerfile
+              echo "COPY . ." >> Dockerfile
+              echo "CMD [\"ruby\", \"app.rb\"]" >> Dockerfile
             else
-              echo "RUN npm install --only=production" >> Dockerfile
+              # Generic/unknown project - create minimal container for scanning
+              echo "FROM alpine:latest" > Dockerfile
+              echo "WORKDIR /app" >> Dockerfile
+              echo "RUN apk add --no-cache curl" >> Dockerfile
+              echo "COPY . ." >> Dockerfile
+              echo "CMD [\"sh\"]" >> Dockerfile
             fi
-            echo "COPY . ." >> Dockerfile
-            echo "CMD [\"npm\", \"start\"]" >> Dockerfile
           fi
           docker build -t snyk-scan-image .
 
@@ -97,32 +129,66 @@ jobs:
       - name: Install dependencies for dependency scan
         continue-on-error: true
         run: |
+          echo "Checking for supported project files..."
+          SUPPORTED_FILES_FOUND=false
+          
           if [ -f package.json ]; then
-            # Generate package-lock.json if it doesn't exist
+            echo "Found Node.js project (package.json)"
+            SUPPORTED_FILES_FOUND=true
             if [ ! -f package-lock.json ]; then
               npm install
             else
               npm ci
             fi
           elif [ -f requirements.txt ]; then
+            echo "Found Python project (requirements.txt)"
+            SUPPORTED_FILES_FOUND=true
             pip install -r requirements.txt
           elif [ -f pom.xml ]; then
+            echo "Found Java Maven project (pom.xml)"
+            SUPPORTED_FILES_FOUND=true
             mvn install -DskipTests
           elif [ -f Gemfile ]; then
+            echo "Found Ruby project (Gemfile)"
+            SUPPORTED_FILES_FOUND=true
             bundle install
+          elif [ -f Cargo.toml ]; then
+            echo "Found Rust project (Cargo.toml)"
+            SUPPORTED_FILES_FOUND=true
+            # Rust doesn't need dependency installation for Snyk scanning
+          elif [ -f go.mod ]; then
+            echo "Found Go project (go.mod)"
+            SUPPORTED_FILES_FOUND=true
+            go mod download
+          elif [ -f composer.json ]; then
+            echo "Found PHP project (composer.json)"
+            SUPPORTED_FILES_FOUND=true
+            composer install --no-dev
+          else
+            echo "No supported dependency files found"
+            echo "Supported files: package.json, requirements.txt, pom.xml, Gemfile, Cargo.toml, go.mod, composer.json"
           fi
+          
+          echo "SUPPORTED_FILES_FOUND=$SUPPORTED_FILES_FOUND" >> $GITHUB_ENV
 
       - name: Run Snyk Open Source Scan
         id: snyk_open_source
         continue-on-error: true
         run: |
           TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
-          snyk test \
-            --json \
-            --json-file-output=security-reports/snyk-dependencies-${TIMESTAMP}.json \
-            --severity-threshold=low \
-            || true
-          echo "deps_file=snyk-dependencies-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
+          if [ "$SUPPORTED_FILES_FOUND" = "true" ]; then
+            echo "Running Snyk test on supported project files..."
+            snyk test \
+              --json \
+              --json-file-output=security-reports/snyk-dependencies-${TIMESTAMP}.json \
+              --severity-threshold=low \
+              || true
+            echo "deps_file=snyk-dependencies-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping dependency scan - no supported files found"
+            echo '{"error": "No supported dependency files found", "supportedFiles": ["package.json", "requirements.txt", "pom.xml", "Gemfile", "Cargo.toml", "go.mod", "composer.json"]}' > security-reports/snyk-dependencies-${TIMESTAMP}.json
+            echo "deps_file=snyk-dependencies-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
+          fi
 
       # Generate SBOM
       - name: Generate SBOM with Snyk
@@ -130,11 +196,18 @@ jobs:
         continue-on-error: true
         run: |
           TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
-          snyk sbom \
-            --format=spdx2.3+json \
-            --json-file-output=security-reports/snyk-sbom-${TIMESTAMP}.json \
-            || true
-          echo "sbom_file=snyk-sbom-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
+          if [ "$SUPPORTED_FILES_FOUND" = "true" ]; then
+            echo "Generating SBOM for supported project..."
+            snyk sbom \
+              --format=spdx2.3+json \
+              --json-file-output=security-reports/snyk-sbom-${TIMESTAMP}.json \
+              || true
+            echo "sbom_file=snyk-sbom-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping SBOM generation - no supported files found"
+            echo '{"error": "No supported dependency files found for SBOM generation"}' > security-reports/snyk-sbom-${TIMESTAMP}.json
+            echo "sbom_file=snyk-sbom-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
+          fi
 
       # Upload results to VM
       - name: Upload Snyk Code results to VM
@@ -170,10 +243,20 @@ jobs:
         run: |
           echo "=== Snyk Security Scans Completed ==="
           echo "Timestamp: ${{ steps.timestamp.outputs.timestamp }}"
-          echo "Code Scan (SAST): ${{ steps.snyk_code.outputs.code_file || 'Failed' }}"
-          echo "Container Scan: ${{ steps.snyk_container.outputs.container_file || 'Failed' }}"
-          echo "Dependencies Scan: ${{ steps.snyk_open_source.outputs.deps_file || 'Failed' }}"
-          echo "SBOM Generation: ${{ steps.snyk_sbom.outputs.sbom_file || 'Failed' }}"
+          echo "Repository: ${{ github.repository }}"
+          echo "Supported files found: ${SUPPORTED_FILES_FOUND:-false}"
+          echo ""
+          echo "Scan Results:"
+          echo "  Code Scan (SAST): ${{ steps.snyk_code.outputs.code_file || 'Failed/Skipped' }}"
+          echo "  Container Scan: ${{ steps.snyk_container.outputs.container_file || 'Failed/Skipped' }}"
+          echo "  Dependencies Scan: ${{ steps.snyk_open_source.outputs.deps_file || 'Failed/Skipped' }}"
+          echo "  SBOM Generation: ${{ steps.snyk_sbom.outputs.sbom_file || 'Failed/Skipped' }}"
+          echo ""
+          if [ "$SUPPORTED_FILES_FOUND" != "true" ]; then
+            echo "⚠️  No supported dependency files found in repository"
+            echo "   Supported files: package.json, requirements.txt, pom.xml, Gemfile, Cargo.toml, go.mod, composer.json"
+            echo "   Some scans may have limited results"
+          fi
 
       # Optional: Comment on PR with scan summary
       - name: Comment PR with scan results
@@ -182,21 +265,28 @@ jobs:
         with:
           script: |
             const timestamp = '${{ steps.timestamp.outputs.timestamp }}';
-            const codeFile = '${{ steps.snyk_code.outputs.code_file }}' || 'Failed';
-            const containerFile = '${{ steps.snyk_container.outputs.container_file }}' || 'Failed';
-            const depsFile = '${{ steps.snyk_open_source.outputs.deps_file }}' || 'Failed';
-            const sbomFile = '${{ steps.snyk_sbom.outputs.sbom_file }}' || 'Failed';
+            const codeFile = '${{ steps.snyk_code.outputs.code_file }}' || 'Failed/Skipped';
+            const containerFile = '${{ steps.snyk_container.outputs.container_file }}' || 'Failed/Skipped';
+            const depsFile = '${{ steps.snyk_open_source.outputs.deps_file }}' || 'Failed/Skipped';
+            const sbomFile = '${{ steps.snyk_sbom.outputs.sbom_file }}' || 'Failed/Skipped';
             
             const body = `## 🔒 Snyk Security Scan Results
             
             **Scan Timestamp:** ${timestamp}
+            **Repository:** ${{ github.repository }}
             
             | Scan Type | Status | File |
             |-----------|--------|------|
-            | Code (SAST) | ${codeFile !== 'Failed' ? '✅' : '❌'} | ${codeFile} |
-            | Container | ${containerFile !== 'Failed' ? '✅' : '❌'} | ${containerFile} |
-            | Dependencies | ${depsFile !== 'Failed' ? '✅' : '❌'} | ${depsFile} |
-            | SBOM | ${sbomFile !== 'Failed' ? '✅' : '❌'} | ${sbomFile} |
+            | Code (SAST) | ${codeFile !== 'Failed/Skipped' ? '✅' : '❌'} | ${codeFile} |
+            | Container | ${containerFile !== 'Failed/Skipped' ? '✅' : '❌'} | ${containerFile} |
+            | Dependencies | ${depsFile !== 'Failed/Skipped' ? '✅' : '❌'} | ${depsFile} |
+            | SBOM | ${sbomFile !== 'Failed/Skipped' ? '✅' : '❌'} | ${sbomFile} |
+            
+            ${process.env.SUPPORTED_FILES_FOUND !== 'true' ? 
+              '⚠️ **Note:** No supported dependency files found. Some scans may have limited results.' : 
+              '✅ **Supported project files detected**'}
+            
+            **Supported file types:** package.json, requirements.txt, pom.xml, Gemfile, Cargo.toml, go.mod, composer.json
             
             Results uploaded to VM at 34.57.235.175`;
             
