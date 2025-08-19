@@ -180,55 +180,45 @@ jobs:
             
             if [ -f package.json ]; then
               echo "Creating Node.js Dockerfile..."
-              cat > Dockerfile << EOF
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci || npm install || true
-COPY . .
-CMD ["npm", "start"]
-EOF
+              echo "FROM node:18-alpine" > Dockerfile
+              echo "WORKDIR /app" >> Dockerfile
+              echo "COPY package*.json ./" >> Dockerfile
+              echo "RUN npm ci || npm install || true" >> Dockerfile
+              echo "COPY . ." >> Dockerfile
+              echo 'CMD ["npm", "start"]' >> Dockerfile
             elif find . -name "requirements.txt" | head -1 | grep -q .; then
               echo "Creating Python Dockerfile..."
-              cat > Dockerfile << EOF
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt || true
-COPY . .
-CMD ["python", "app.py"]
-EOF
+              echo "FROM python:3.11-slim" > Dockerfile
+              echo "WORKDIR /app" >> Dockerfile
+              echo "COPY requirements.txt ./" >> Dockerfile
+              echo "RUN pip install --no-cache-dir -r requirements.txt || true" >> Dockerfile
+              echo "COPY . ." >> Dockerfile
+              echo 'CMD ["python", "app.py"]' >> Dockerfile
             elif find . -name "pom.xml" | head -1 | grep -q .; then
               echo "Creating Java Dockerfile..."
-              cat > Dockerfile << EOF
-FROM openjdk:11-jre-slim
-WORKDIR /app
-COPY target/*.jar app.jar 2>/dev/null || COPY . .
-CMD ["java", "-jar", "app.jar"]
-EOF
+              echo "FROM openjdk:11-jre-slim" > Dockerfile
+              echo "WORKDIR /app" >> Dockerfile
+              echo "COPY target/*.jar app.jar 2>/dev/null || COPY . ." >> Dockerfile
+              echo 'CMD ["java", "-jar", "app.jar"]' >> Dockerfile
             elif find . -name "go.mod" | head -1 | grep -q .; then
               echo "Creating Go Dockerfile..."
-              cat > Dockerfile << EOF
-FROM golang:1.21-alpine AS builder
-WORKDIR /app
-COPY go.* ./
-RUN go mod download
-COPY . .
-RUN go build -o main .
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-COPY --from=builder /app/main /main
-CMD ["./main"]
-EOF
+              echo "FROM golang:1.21-alpine AS builder" > Dockerfile
+              echo "WORKDIR /app" >> Dockerfile
+              echo "COPY go.* ./" >> Dockerfile
+              echo "RUN go mod download" >> Dockerfile
+              echo "COPY . ." >> Dockerfile
+              echo "RUN go build -o main ." >> Dockerfile
+              echo "FROM alpine:latest" >> Dockerfile
+              echo "RUN apk --no-cache add ca-certificates" >> Dockerfile
+              echo "COPY --from=builder /app/main /main" >> Dockerfile
+              echo 'CMD ["./main"]' >> Dockerfile
             else
               echo "Creating generic Dockerfile..."
-              cat > Dockerfile << EOF
-FROM alpine:latest
-WORKDIR /app
-RUN apk add --no-cache curl
-COPY . .
-CMD ["sh"]
-EOF
+              echo "FROM alpine:latest" > Dockerfile
+              echo "WORKDIR /app" >> Dockerfile
+              echo "RUN apk add --no-cache curl" >> Dockerfile
+              echo "COPY . ." >> Dockerfile
+              echo 'CMD ["sh"]' >> Dockerfile
             fi
             
             if docker build -t snyk-scan-generic .; then
