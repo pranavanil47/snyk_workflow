@@ -370,21 +370,17 @@ EOF
             const depsFile = '${{ steps.snyk_open_source.outputs.deps_file }}' || 'Failed/Skipped';
             const sbomFile = '${{ steps.snyk_sbom.outputs.sbom_file }}' || 'Failed/Skipped';
             
-            const body = `## Snyk Security Scan Results
-            
-            **Scan Timestamp:** ${timestamp}  
-            **Repository:** ${{ github.repository }}
-            
-            | Scan Type | Status | File |
-            |-----------|--------|------|
-            | SAST (Code Analysis) | ${codeFile !== 'Failed/Skipped' ? '✅' : '❌'} | \`${codeFile}\` |
-            | Container Security | ${containerFile !== 'Failed/Skipped' ? '✅' : '❌'} | \`${containerFile}\` |
-            | Dependencies (SCA) | ${depsFile !== 'Failed/Skipped' ? '✅' : '❌'} | \`${depsFile}\` |
-            | SBOM Generation | ${sbomFile !== 'Failed/Skipped' ? '✅' : '❌'} | \`${sbomFile}\` |
-            
-            **Results uploaded to:** 34.57.235.175
-            
-            Review the detailed security reports in the uploaded files for any vulnerabilities or issues found.`;
+            const body = '## Snyk Security Scan Results\n\n' +
+              '**Scan Timestamp:** ' + timestamp + '\n' +  
+              '**Repository:** ${{ github.repository }}\n\n' +
+              '| Scan Type | Status | File |\n' +
+              '|-----------|--------|----- |\n' +
+              '| SAST | ' + (codeFile !== 'Failed/Skipped' ? '✅' : '❌') + ' | `' + codeFile + '` |\n' +
+              '| Container | ' + (containerFile !== 'Failed/Skipped' ? '✅' : '❌') + ' | `' + containerFile + '` |\n' +
+              '| Dependencies | ' + (depsFile !== 'Failed/Skipped' ? '✅' : '❌') + ' | `' + depsFile + '` |\n' +
+              '| SBOM | ' + (sbomFile !== 'Failed/Skipped' ? '✅' : '❌') + ' | `' + sbomFile + '` |\n\n' +
+              '**Results uploaded to:** 34.57.235.175\n\n' +
+              'Review the detailed security reports in the uploaded files for vulnerabilities.';
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
