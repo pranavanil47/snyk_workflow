@@ -365,26 +365,26 @@ EOF
         with:
           script: |
             const timestamp = '${{ steps.timestamp.outputs.timestamp }}';
-            const codeFile = '${{ steps.snyk_code.outputs.code_file }}' || '❌ Failed/Skipped';
-            const containerFile = '${{ steps.snyk_container.outputs.container_file }}' || '❌ Failed/Skipped';
-            const depsFile = '${{ steps.snyk_open_source.outputs.deps_file }}' || '❌ Failed/Skipped';
-            const sbomFile = '${{ steps.snyk_sbom.outputs.sbom_file }}' || '❌ Failed/Skipped';
+            const codeFile = '${{ steps.snyk_code.outputs.code_file }}' || 'Failed/Skipped';
+            const containerFile = '${{ steps.snyk_container.outputs.container_file }}' || 'Failed/Skipped';
+            const depsFile = '${{ steps.snyk_open_source.outputs.deps_file }}' || 'Failed/Skipped';
+            const sbomFile = '${{ steps.snyk_sbom.outputs.sbom_file }}' || 'Failed/Skipped';
             
-            const body = `## 🔐 Snyk Security Scan Results
+            const body = `## Snyk Security Scan Results
             
-            **📅 Scan Timestamp:** ${timestamp}  
-            **📁 Repository:** ${{ github.repository }}
+            **Scan Timestamp:** ${timestamp}  
+            **Repository:** ${{ github.repository }}
             
-            | 🔍 Scan Type | Status | 📄 File |
-            |--------------|--------|---------|
-            | **SAST** (Code Analysis) | ${codeFile.includes('❌') ? '❌' : '✅'} | \`${codeFile}\` |
-            | **Container** Security | ${containerFile.includes('❌') ? '❌' : '✅'} | \`${containerFile}\` |
-            | **Dependencies** (SCA) | ${depsFile.includes('❌') ? '❌' : '✅'} | \`${depsFile}\` |
-            | **SBOM** Generation | ${sbomFile.includes('❌') ? '❌' : '✅'} | \`${sbomFile}\` |
+            | Scan Type | Status | File |
+            |-----------|--------|------|
+            | SAST (Code Analysis) | ${codeFile !== 'Failed/Skipped' ? '✅' : '❌'} | \`${codeFile}\` |
+            | Container Security | ${containerFile !== 'Failed/Skipped' ? '✅' : '❌'} | \`${containerFile}\` |
+            | Dependencies (SCA) | ${depsFile !== 'Failed/Skipped' ? '✅' : '❌'} | \`${depsFile}\` |
+            | SBOM Generation | ${sbomFile !== 'Failed/Skipped' ? '✅' : '❌'} | \`${sbomFile}\` |
             
-            📤 **Results uploaded to:** \`34.57.235.175\`
+            **Results uploaded to:** 34.57.235.175
             
-            🛡️ Review the detailed security reports in the uploaded files for any vulnerabilities or issues found.`;
+            Review the detailed security reports in the uploaded files for any vulnerabilities or issues found.`;
             
             github.rest.issues.createComment({
               issue_number: context.issue.number,
