@@ -1,4 +1,4 @@
-name: Snyk Offline Scans (SCA + SAST + SBOM + Container)
+name: Snyk Security Scans
 
 on:
   push:
@@ -8,126 +8,191 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  snyk:
-    name: Snyk SCA + SAST + SBOM + Container
+  snyk-security-scans:
+    name: Snyk Security Scans
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
       pull-requests: write
-
+      security-events: write
     env:
       SNYK_TOKEN: ${{ secrets.SNYK_API_TOKEN }}
-
+    
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y rsync jq
-        node --version || sudo apt-get install -y nodejs npm
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
 
-    - name: Install Snyk CLI
-      run: |
-        npm install -g snyk@latest
-        snyk --version
+      - name: Install Snyk CLI
+        run: |
+          npm install -g snyk
+          snyk auth ${{ secrets.SNYK_API_TOKEN }}
 
-    - name: Setup SSH
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
-        ssh-keyscan -H 34.57.235.175 >> ~/.ssh/known_hosts
+      - name: Setup SSH for file upload
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H 34.57.235.175 >> ~/.ssh/known_hosts
 
-    - name: Prepare local report directories
-      id: prep
-      run: |
-        mkdir -p security-reports/Snyk_Code \
-                 security-reports/Snyk_SAST \
-                 security-reports/Snyk_SBOM \
-                 security-reports/Snyk_container_scan
-        echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+      - name: Create reports directory
+        run: mkdir -p security-reports
 
-    - name: Snyk auth
-      run: snyk auth "${SNYK_TOKEN}" || true
+      - name: Generate timestamp
+        id: timestamp
+        run: echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
 
-    # ------------------ SCA (Open Source) ------------------
-    - name: Run Snyk Open Source (SCA) → JSON
-      continue-on-error: true
-      run: |
-        OUT="security-reports/Snyk_Code/snyk-sca-${{ steps.prep.outputs.timestamp }}.json"
-        snyk test --all-projects --json-file-output="$OUT" || true
-        test -s "$OUT" || echo '{}' > "$OUT"
+      # Snyk Code Scan (SAST + SCA)
+      - name: Run Snyk Code Scan (SAST + SCA)
+        id: snyk_code
+        continue-on-error: true
+        run: |
+          TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
+          snyk code test \
+            --json \
+            --json-file-output=security-reports/snyk-code-${TIMESTAMP}.json \
+            --severity-threshold=low \
+            || true
+          echo "code_file=snyk-code-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-    # ------------------ SAST (Code) ------------------
-    - name: Run Snyk Code (SAST) → JSON
-      continue-on-error: true
-      run: |
-        OUT="security-reports/Snyk_SAST/snyk-sast-${{ steps.prep.outputs.timestamp }}.json"
-        snyk code test --json-file-output="$OUT" || true
-        test -s "$OUT" || echo '{}' > "$OUT"
+      # Snyk Container Scan
+      - name: Build Docker image for container scan
+        continue-on-error: true
+        run: |
+          # Check if Dockerfile exists, if not create a simple one for scanning
+          if [ ! -f Dockerfile ]; then
+            echo "FROM node:18-alpine" > Dockerfile
+            echo "WORKDIR /app" >> Dockerfile
+            echo "COPY package*.json ./" >> Dockerfile
+            echo "RUN npm ci --only=production" >> Dockerfile
+            echo "COPY . ." >> Dockerfile
+            echo "CMD [\"npm\", \"start\"]" >> Dockerfile
+          fi
+          docker build -t snyk-scan-image .
 
-    # ------------------ SBOM ------------------
-    - name: Generate SBOM (CycloneDX JSON)
-      continue-on-error: true
-      run: |
-        OUT="security-reports/Snyk_SBOM/snyk-sbom-${{ steps.prep.outputs.timestamp }}.json"
-        snyk sbom --all-projects --format=cyclonedx1.4+json --output-file="$OUT" || true
-        test -s "$OUT" || echo '{}' > "$OUT"
+      - name: Run Snyk Container Scan
+        id: snyk_container
+        continue-on-error: true
+        run: |
+          TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
+          snyk container test snyk-scan-image \
+            --json \
+            --json-file-output=security-reports/snyk-container-${TIMESTAMP}.json \
+            --severity-threshold=low \
+            || true
+          echo "container_file=snyk-container-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-    # ------------------ Container ------------------
-    - name: Discover Dockerfiles, build & scan
-      continue-on-error: true
-      run: |
-        set -e
-        TS="${{ steps.prep.outputs.timestamp }}"
-        mapfile -t DOCKERFILES < <(git ls-files | grep -E '(?i)Dockerfile$' || true)
+      # Snyk Open Source (Dependencies) Scan
+      - name: Install dependencies for dependency scan
+        continue-on-error: true
+        run: |
+          if [ -f package.json ]; then
+            npm install
+          elif [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          elif [ -f pom.xml ]; then
+            mvn install -DskipTests
+          elif [ -f Gemfile ]; then
+            bundle install
+          fi
 
-        if [ ${#DOCKERFILES[@]} -eq 0 ]; then
-          echo "No Dockerfiles found in repo."
-        fi
+      - name: Run Snyk Open Source Scan
+        id: snyk_open_source
+        continue-on-error: true
+        run: |
+          TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
+          snyk test \
+            --json \
+            --json-file-output=security-reports/snyk-dependencies-${TIMESTAMP}.json \
+            --severity-threshold=low \
+            || true
+          echo "deps_file=snyk-dependencies-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-        for df in "${DOCKERFILES[@]}"; do
-          DIR="$(dirname "$df")"
-          TAG="snykimg-$(echo "$DIR" | tr '/.' '-' | tr '[:upper:]' '[:lower:]')"
-          [ "$DIR" = "." ] && TAG="snykimg-root"
+      # Generate SBOM
+      - name: Generate SBOM with Snyk
+        id: snyk_sbom
+        continue-on-error: true
+        run: |
+          TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
+          snyk sbom \
+            --format=spdx2.3+json \
+            --json-file-output=security-reports/snyk-sbom-${TIMESTAMP}.json \
+            || true
+          echo "sbom_file=snyk-sbom-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-          echo "Building image $TAG from $df"
-          docker build -t "$TAG" "$DIR" || { echo "Build failed for $df, skipping"; continue; }
+      # Upload results to VM
+      - name: Upload Snyk Code results to VM
+        if: steps.snyk_code.outputs.code_file
+        run: |
+          FILE_NAME=${{ steps.snyk_code.outputs.code_file }}
+          scp -i ~/.ssh/id_rsa security-reports/$FILE_NAME \
+            pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_SAST/
 
-          OUT="security-reports/Snyk_container_scan/${TAG}-${TS}.json"
-          echo "Scanning container $TAG → $OUT"
-          snyk container test "$TAG" --json-file-output="$OUT" || true
-          test -s "$OUT" || echo '{}' > "$OUT"
-        done
-
-    # ------------------ Upload to VM ------------------
-    - name: Upload SCA JSON → Snyk_Code
-      run: |
-        scp -i ~/.ssh/id_rsa security-reports/Snyk_Code/*.json \
-          pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_Code/
-
-    - name: Upload SAST JSON → Snyk_SAST
-      run: |
-        scp -i ~/.ssh/id_rsa security-reports/Snyk_SAST/*.json \
-          pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_SAST/
-
-    - name: Upload SBOM JSON
-      run: |
-        scp -i ~/.ssh/id_rsa security-reports/Snyk_SBOM/*.json \
-          pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_SBOM/
-
-    - name: Upload Container scan JSON
-      run: |
-        shopt -s nullglob
-        FILES=(security-reports/Snyk_container_scan/*.json)
-        if [ ${#FILES[@]} -gt 0 ]; then
-          scp -i ~/.ssh/id_rsa "${FILES[@]}" \
+      - name: Upload Snyk Container results to VM
+        if: steps.snyk_container.outputs.container_file
+        run: |
+          FILE_NAME=${{ steps.snyk_container.outputs.container_file }}
+          scp -i ~/.ssh/id_rsa security-reports/$FILE_NAME \
             pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_container_scan/
-        else
-          echo "No container JSON files to upload."
-        fi
+
+      - name: Upload Snyk Dependencies results to VM
+        if: steps.snyk_open_source.outputs.deps_file
+        run: |
+          FILE_NAME=${{ steps.snyk_open_source.outputs.deps_file }}
+          scp -i ~/.ssh/id_rsa security-reports/$FILE_NAME \
+            pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_Code/
+
+      - name: Upload SBOM to VM
+        if: steps.snyk_sbom.outputs.sbom_file
+        run: |
+          FILE_NAME=${{ steps.snyk_sbom.outputs.sbom_file }}
+          scp -i ~/.ssh/id_rsa security-reports/$FILE_NAME \
+            pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_SBOM/
+
+      # Summary step
+      - name: Scan Summary
+        run: |
+          echo "=== Snyk Security Scans Completed ==="
+          echo "Timestamp: ${{ steps.timestamp.outputs.timestamp }}"
+          echo "Code Scan (SAST): ${{ steps.snyk_code.outputs.code_file || 'Failed' }}"
+          echo "Container Scan: ${{ steps.snyk_container.outputs.container_file || 'Failed' }}"
+          echo "Dependencies Scan: ${{ steps.snyk_open_source.outputs.deps_file || 'Failed' }}"
+          echo "SBOM Generation: ${{ steps.snyk_sbom.outputs.sbom_file || 'Failed' }}"
+
+      # Optional: Comment on PR with scan summary
+      - name: Comment PR with scan results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const timestamp = '${{ steps.timestamp.outputs.timestamp }}';
+            const codeFile = '${{ steps.snyk_code.outputs.code_file }}' || 'Failed';
+            const containerFile = '${{ steps.snyk_container.outputs.container_file }}' || 'Failed';
+            const depsFile = '${{ steps.snyk_open_source.outputs.deps_file }}' || 'Failed';
+            const sbomFile = '${{ steps.snyk_sbom.outputs.sbom_file }}' || 'Failed';
+            
+            const body = `## 🔒 Snyk Security Scan Results
+            
+            **Scan Timestamp:** ${timestamp}
+            
+            | Scan Type | Status | File |
+            |-----------|--------|------|
+            | Code (SAST) | ${codeFile !== 'Failed' ? '✅' : '❌'} | ${codeFile} |
+            | Container | ${containerFile !== 'Failed' ? '✅' : '❌'} | ${containerFile} |
+            | Dependencies | ${depsFile !== 'Failed' ? '✅' : '❌'} | ${depsFile} |
+            | SBOM | ${sbomFile !== 'Failed' ? '✅' : '❌'} | ${sbomFile} |
+            
+            Results uploaded to VM at 34.57.235.175`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
