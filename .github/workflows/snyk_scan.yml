@@ -70,7 +70,12 @@ jobs:
             echo "FROM node:18-alpine" > Dockerfile
             echo "WORKDIR /app" >> Dockerfile
             echo "COPY package*.json ./" >> Dockerfile
-            echo "RUN npm ci --only=production" >> Dockerfile
+            # Use npm install instead of npm ci if package-lock.json doesn't exist
+            if [ -f package-lock.json ]; then
+              echo "RUN npm ci --only=production" >> Dockerfile
+            else
+              echo "RUN npm install --only=production" >> Dockerfile
+            fi
             echo "COPY . ." >> Dockerfile
             echo "CMD [\"npm\", \"start\"]" >> Dockerfile
           fi
@@ -93,7 +98,12 @@ jobs:
         continue-on-error: true
         run: |
           if [ -f package.json ]; then
-            npm install
+            # Generate package-lock.json if it doesn't exist
+            if [ ! -f package-lock.json ]; then
+              npm install
+            else
+              npm ci
+            fi
           elif [ -f requirements.txt ]; then
             pip install -r requirements.txt
           elif [ -f pom.xml ]; then
