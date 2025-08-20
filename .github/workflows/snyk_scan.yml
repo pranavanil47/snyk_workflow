@@ -1,4 +1,4 @@
-# File: .github/workflows/snyk-scan.yml
+#  File: .github/workflows/snyk-scan.yml
 name: Snyk Security Scan
 
 on:
