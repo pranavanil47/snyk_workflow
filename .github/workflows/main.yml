@@ -1,0 +1,36 @@
+name: Security Scan with Snyk
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check if SNYK_TOKEN is set
+        run: |
+          if [ -z "$SNYK_TOKEN" ]; then
+            echo "SNYK_TOKEN is NOT set!"
+            exit 1
+          else
+            echo "SNYK_TOKEN is set (masked)."
+          fi
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_API_TOKEN }}
+      
+      - name: Install Snyk CLI
+        if: success()
+        run: npm install -g snyk
+      
+      - name: Run Snyk security scan
+        if: success()
+        run: snyk test
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_API_TOKEN }}
