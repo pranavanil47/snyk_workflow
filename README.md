@@ -9,7 +9,7 @@ This collection contains intentionally vulnerable applications designed to test 
  
 ### 1. Node.js  Vulnerable Application (`vulnerable-node-app/`)
 - **Language:** Node.js/JavaScript
-- **Package Manager:** npm
+- **Package Manager:**  npm
 - **Key Vulnerabilities:**
   - Express 4.16.0 - CVE-2022-24999
   - Lodash 4.17.11 - Prototype pollution
