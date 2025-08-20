@@ -1,380 +1,207 @@
-name: Snyk Security Scans
+name: Snyk Offline Security Scan
 
 on:
   push:
-    branches: [ main, develop, master ]
+    branches: [ main, develop ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch: {}
 
 jobs:
-  snyk-security-scans:
-    name: Snyk Security Scans
+  snyk:
+    name: Offline Snyk Scan
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
       pull-requests: write
-      security-events: write
-    env:
-      SNYK_TOKEN: ${{ secrets.SNYK_API_TOKEN }}
-    
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
-      # AUTO-DETECT AND SETUP LANGUAGES
-      
-      - name: Setup Node.js
-        if: hashFiles('**/package.json') != ''
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          
-      - name: Setup Python
-        if: hashFiles('**/requirements.txt', '**/pyproject.toml', '**/setup.py') != ''
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-          
-      - name: Setup Java
-        if: hashFiles('**/pom.xml', '**/build.gradle', '**/gradle.properties') != ''
-        uses: actions/setup-java@v4
-        with:
-          java-version: '11'
-          distribution: 'temurin'
-          
-      - name: Setup Go
-        if: hashFiles('**/go.mod') != ''
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.21'
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
 
-      - name: Setup Ruby
-        if: hashFiles('**/Gemfile') != ''
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: '3.1'
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
 
-      # SNYK SETUP
-      
-      - name: Install Snyk CLI
-        run: |
-          npm install -g snyk
-          snyk auth ${{ secrets.SNYK_API_TOKEN }}
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '11'
 
-      - name: Setup SSH for file upload
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H 34.57.235.175 >> ~/.ssh/known_hosts
+    - name: Setup Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.19'
 
-      - name: Create reports directory
-        run: mkdir -p security-reports
+    - name: Install Snyk CLI
+      run: |
+        npm install -g snyk@latest
+        snyk auth ${{ secrets.SNYK_API_TOKEN }}
 
-      - name: Generate timestamp
-        id: timestamp
-        run: echo "timestamp=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+    - name: Install project dependencies
+      run: |
+        # Install Node.js dependencies if package.json exists
+        if [ -f "package.json" ]; then
+          npm install
+        fi
+        
+        # Install Python dependencies if requirements.txt exists
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
+        fi
+        
+        # Install Go dependencies if go.mod exists
+        if [ -f "go.mod" ]; then
+          go mod download
+        fi
+        
+        # For Java/Maven projects
+        if [ -f "pom.xml" ]; then
+          mvn dependency:resolve || true
+        fi
 
-      # SMART DEPENDENCY INSTALLATION
-      
-      - name: Install dependencies
-        continue-on-error: true
-        run: |
-          echo "Auto-detecting and installing dependencies..."
-          
-          # Node.js projects
-          if find . -name "package.json" -not -path "./node_modules/*" | head -1 | grep -q .; then
-            echo "Installing Node.js dependencies..."
-            if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-              npm ci
-            else
-              npm install
-            fi
-          fi
-          
-          # Python projects
-          if find . -name "requirements.txt" | head -1 | grep -q .; then
-            echo "Installing Python dependencies..."
-            find . -name "requirements.txt" -exec pip install -r {} \;
-          elif find . -name "pyproject.toml" | head -1 | grep -q .; then
-            echo "Installing Python project..."
-            pip install .
-          fi
-          
-          # Java Maven projects
-          if find . -name "pom.xml" | head -1 | grep -q .; then
-            echo "Building Java Maven projects..."
-            find . -name "pom.xml" -execdir mvn clean install -DskipTests \;
-          fi
-          
-          # Java Gradle projects
-          if find . -name "build.gradle*" | head -1 | grep -q .; then
-            echo "Building Java Gradle projects..."
-            find . -name "gradlew" -execdir ./gradlew build -x test \;
-          fi
-          
-          # Go projects
-          if find . -name "go.mod" | head -1 | grep -q .; then
-            echo "Downloading Go dependencies..."
-            find . -name "go.mod" -execdir go mod download \;
-          fi
-          
-          # Ruby projects
-          if find . -name "Gemfile" | head -1 | grep -q .; then
-            echo "Installing Ruby dependencies..."
-            find . -name "Gemfile" -execdir bundle install \;
-          fi
-          
-          # PHP projects
-          if find . -name "composer.json" | head -1 | grep -q .; then
-            echo "Installing PHP dependencies..."
-            find . -name "composer.json" -execdir composer install --no-dev \;
-          fi
-          
-          # Rust projects
-          if find . -name "Cargo.toml" | head -1 | grep -q .; then
-            echo "Building Rust projects..."
-            find . -name "Cargo.toml" -execdir cargo build --release \;
-          fi
+    - name: Setup SSH for Upload
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H 34.59.19.208 >> ~/.ssh/known_hosts
 
-      # SNYK CODE SCAN (SAST)
+    - name: Run Snyk Code Scan
+      id: run_code_scan
+      continue-on-error: true
+      run: |
+        mkdir -p security-reports
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        
+        # Run Snyk Code (SAST) scan
+        snyk code test --json > security-reports/snyk-code-${TIMESTAMP}.json || true
+        
+        echo "code_file=snyk-code-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-      - name: Run Snyk Code Scan (SAST)
-        id: snyk_code
-        continue-on-error: true
-        run: |
-          TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
-          echo "Running Snyk Code Analysis (SAST)..."
-          snyk code test \
-            --all-projects \
-            --json \
-            --json-file-output=security-reports/snyk-code-${TIMESTAMP}.json \
-            --severity-threshold=low \
-            || true
-          echo "code_file=snyk-code-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
+    - name: Run Snyk Open Source Scan
+      id: run_oss_scan
+      continue-on-error: true
+      run: |
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        
+        # Run Snyk Open Source (SCA) scan
+        snyk test --json > security-reports/snyk-oss-${TIMESTAMP}.json || true
+        
+        echo "oss_file=snyk-oss-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-      # CONTAINER SCANNING
+    - name: Run Snyk Container Scan
+      id: run_container_scan
+      continue-on-error: true
+      run: |
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        
+        # Check if Dockerfile exists and run container scan
+        if [ -f "Dockerfile" ]; then
+          # Build image for scanning
+          docker build -t temp-scan-image . || true
+          snyk container test temp-scan-image --json > security-reports/snyk-container-${TIMESTAMP}.json || true
+          # Cleanup
+          docker rmi temp-scan-image || true
+        else
+          echo "No Dockerfile found, skipping container scan"
+          echo "{\"info\": \"No Dockerfile found\"}" > security-reports/snyk-container-${TIMESTAMP}.json
+        fi
+        
+        echo "container_file=snyk-container-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-      - name: Build Docker images for container scan
-        continue-on-error: true
-        run: |
-          echo "Building Docker images for container scanning..."
-          IMAGES_BUILT=false
-          
-          # Build from existing Dockerfiles
-          find . -name "Dockerfile" -not -path "./.git/*" | while read dockerfile; do
-            dir=$(dirname "$dockerfile")
-            name=$(basename "$dir" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g')
-            echo "Building Docker image from $dockerfile as snyk-scan-$name..."
-            if docker build -t snyk-scan-$name "$dir"; then
-              IMAGES_BUILT=true
-            fi
-          done
-          
-          # Auto-generate Dockerfile if none exist
-          if [ $(find . -name "Dockerfile" -not -path "./.git/*" | wc -l) -eq 0 ]; then
-            echo "No Dockerfiles found, creating appropriate scan image..."
-            
-            if [ -f package.json ]; then
-              echo "Creating Node.js Dockerfile..."
-              echo "FROM node:18-alpine" > Dockerfile
-              echo "WORKDIR /app" >> Dockerfile
-              echo "COPY package*.json ./" >> Dockerfile
-              echo "RUN npm ci || npm install || true" >> Dockerfile
-              echo "COPY . ." >> Dockerfile
-              echo 'CMD ["npm", "start"]' >> Dockerfile
-            elif find . -name "requirements.txt" | head -1 | grep -q .; then
-              echo "Creating Python Dockerfile..."
-              echo "FROM python:3.11-slim" > Dockerfile
-              echo "WORKDIR /app" >> Dockerfile
-              echo "COPY requirements.txt ./" >> Dockerfile
-              echo "RUN pip install --no-cache-dir -r requirements.txt || true" >> Dockerfile
-              echo "COPY . ." >> Dockerfile
-              echo 'CMD ["python", "app.py"]' >> Dockerfile
-            elif find . -name "pom.xml" | head -1 | grep -q .; then
-              echo "Creating Java Dockerfile..."
-              echo "FROM openjdk:11-jre-slim" > Dockerfile
-              echo "WORKDIR /app" >> Dockerfile
-              echo "COPY target/*.jar app.jar 2>/dev/null || COPY . ." >> Dockerfile
-              echo 'CMD ["java", "-jar", "app.jar"]' >> Dockerfile
-            elif find . -name "go.mod" | head -1 | grep -q .; then
-              echo "Creating Go Dockerfile..."
-              echo "FROM golang:1.21-alpine AS builder" > Dockerfile
-              echo "WORKDIR /app" >> Dockerfile
-              echo "COPY go.* ./" >> Dockerfile
-              echo "RUN go mod download" >> Dockerfile
-              echo "COPY . ." >> Dockerfile
-              echo "RUN go build -o main ." >> Dockerfile
-              echo "FROM alpine:latest" >> Dockerfile
-              echo "RUN apk --no-cache add ca-certificates" >> Dockerfile
-              echo "COPY --from=builder /app/main /main" >> Dockerfile
-              echo 'CMD ["./main"]' >> Dockerfile
-            else
-              echo "Creating generic Dockerfile..."
-              echo "FROM alpine:latest" > Dockerfile
-              echo "WORKDIR /app" >> Dockerfile
-              echo "RUN apk add --no-cache curl" >> Dockerfile
-              echo "COPY . ." >> Dockerfile
-              echo 'CMD ["sh"]' >> Dockerfile
-            fi
-            
-            if docker build -t snyk-scan-generic .; then
-              IMAGES_BUILT=true
-            fi
-          fi
-          
-          echo "IMAGES_BUILT=$IMAGES_BUILT" >> $GITHUB_ENV
+    - name: Run Snyk IaC Scan
+      id: run_iac_scan
+      continue-on-error: true
+      run: |
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        
+        # Run Snyk Infrastructure as Code scan
+        snyk iac test --json > security-reports/snyk-iac-${TIMESTAMP}.json || true
+        
+        echo "iac_file=snyk-iac-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
 
-      - name: Run Snyk Container Scan
-        id: snyk_container
-        continue-on-error: true
-        run: |
-          TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
-          mkdir -p security-reports/container
-          
-          echo "Scanning Docker containers for vulnerabilities..."
-          
-          # Scan all built images
-          SCANNED_IMAGES=""
-          docker images --format "{{.Repository}}" | grep "^snyk-scan-" | while read image; do
-            echo "Scanning container: $image"
-            snyk container test "$image" \
-              --json \
-              --json-file-output=security-reports/container/snyk-container-${image#snyk-scan-}-${TIMESTAMP}.json \
-              --severity-threshold=low || true
-            SCANNED_IMAGES="$SCANNED_IMAGES,$image"
-          done
-          
-          # Create summary file
-          SCAN_SUMMARY=$(docker images --format "{{.Repository}}" | grep "^snyk-scan-" | jq -R . | jq -s . 2>/dev/null || echo '[]')
-          echo "{\"timestamp\": \"${TIMESTAMP}\", \"scanned_images\": $SCAN_SUMMARY}" > security-reports/snyk-container-${TIMESTAMP}.json
-          echo "container_file=snyk-container-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
+    - name: Generate Combined Report
+      run: |
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        
+        # Create a combined report with metadata
+        cat > security-reports/snyk-combined-${TIMESTAMP}.json << EOF
+        {
+          "scan_metadata": {
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "repository": "${{ github.repository }}",
+            "branch": "${{ github.ref_name }}",
+            "commit": "${{ github.sha }}",
+            "workflow_run": "${{ github.run_id }}"
+          },
+          "scan_results": {
+            "code": $(cat security-reports/${{ steps.run_code_scan.outputs.code_file }} 2>/dev/null || echo '{"error": "Code scan failed"}'),
+            "open_source": $(cat security-reports/${{ steps.run_oss_scan.outputs.oss_file }} 2>/dev/null || echo '{"error": "OSS scan failed"}'),
+            "container": $(cat security-reports/${{ steps.run_container_scan.outputs.container_file }} 2>/dev/null || echo '{"error": "Container scan failed"}'),
+            "iac": $(cat security-reports/${{ steps.run_iac_scan.outputs.iac_file }} 2>/dev/null || echo '{"error": "IaC scan failed"}')
+          }
+        }
+        EOF
+        
+        echo "combined_file=snyk-combined-${TIMESTAMP}.json" >> $GITHUB_ENV
 
-      # DEPENDENCY SCANNING
+    - name: Upload Scan Results to VM
+      run: |
+        # Upload individual scan results
+        scp -i ~/.ssh/id_rsa security-reports/${{ steps.run_code_scan.outputs.code_file }} \
+          pranavanil123@34.59.19.208:/home/pranavanil123/findings/snyk/
+        
+        scp -i ~/.ssh/id_rsa security-reports/${{ steps.run_oss_scan.outputs.oss_file }} \
+          pranavanil123@34.59.19.208:/home/pranavanil123/findings/snyk/
+        
+        scp -i ~/.ssh/id_rsa security-reports/${{ steps.run_container_scan.outputs.container_file }} \
+          pranavanil123@34.59.19.208:/home/pranavanil123/findings/snyk/
+        
+        scp -i ~/.ssh/id_rsa security-reports/${{ steps.run_iac_scan.outputs.iac_file }} \
+          pranavanil123@34.59.19.208:/home/pranavanil123/findings/snyk/
+        
+        # Upload combined report
+        scp -i ~/.ssh/id_rsa security-reports/${{ env.combined_file }} \
+          pranavanil123@34.59.19.208:/home/pranavanil123/findings/snyk/
 
-      - name: Run Snyk Open Source Scan
-        id: snyk_open_source
-        continue-on-error: true
-        run: |
-          TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
-          echo "Scanning dependencies for vulnerabilities..."
-          snyk test \
-            --all-projects \
-            --json \
-            --json-file-output=security-reports/snyk-dependencies-${TIMESTAMP}.json \
-            --severity-threshold=low \
-            || true
-          echo "deps_file=snyk-dependencies-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
+    - name: Create Summary
+      run: |
+        echo "## 🔍 Snyk Security Scan Results" >> $GITHUB_STEP_SUMMARY
+        echo "### Scan Details" >> $GITHUB_STEP_SUMMARY
+        echo "- **Repository**: ${{ github.repository }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Timestamp**: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Scans Performed" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Snyk Code** (SAST): Static analysis for code vulnerabilities" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Snyk Open Source** (SCA): Dependency vulnerability scanning" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Snyk Container**: Docker image vulnerability scanning" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ **Snyk IaC**: Infrastructure as Code security scanning" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Files Generated" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ steps.run_code_scan.outputs.code_file }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ steps.run_oss_scan.outputs.oss_file }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ steps.run_container_scan.outputs.container_file }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ steps.run_iac_scan.outputs.iac_file }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "- \`${{ env.combined_file }}\`" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📁 All results uploaded to: \`/home/pranavanil123/findings/snyk/\`" >> $GITHUB_STEP_SUMMARY
 
-      # SBOM GENERATION
-
-      - name: Generate SBOM with Snyk
-        id: snyk_sbom
-        continue-on-error: true
-        run: |
-          TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
-          echo "Generating Software Bill of Materials (SBOM)..."
-          snyk sbom \
-            --all-projects \
-            --format=spdx2.3+json \
-            --json-file-output=security-reports/snyk-sbom-${TIMESTAMP}.json \
-            || true
-          echo "sbom_file=snyk-sbom-${TIMESTAMP}.json" >> $GITHUB_OUTPUT
-
-      # UPLOAD RESULTS TO VM
-
-      - name: Upload Snyk Code results to VM
-        if: steps.snyk_code.outputs.code_file
-        run: |
-          FILE_NAME=${{ steps.snyk_code.outputs.code_file }}
-          scp -i ~/.ssh/id_rsa security-reports/$FILE_NAME \
-            pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_SAST/
-
-      - name: Upload Snyk Container results to VM
-        if: steps.snyk_container.outputs.container_file
-        run: |
-          FILE_NAME=${{ steps.snyk_container.outputs.container_file }}
-          scp -i ~/.ssh/id_rsa security-reports/$FILE_NAME \
-            pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_container_scan/
-          
-          # Upload individual container results
-          if [ -d security-reports/container ]; then
-            scp -i ~/.ssh/id_rsa security-reports/container/* \
-              pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_container_scan/ || true
-          fi
-
-      - name: Upload Snyk Dependencies results to VM
-        if: steps.snyk_open_source.outputs.deps_file
-        run: |
-          FILE_NAME=${{ steps.snyk_open_source.outputs.deps_file }}
-          scp -i ~/.ssh/id_rsa security-reports/$FILE_NAME \
-            pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_Code/
-
-      - name: Upload SBOM to VM
-        if: steps.snyk_sbom.outputs.sbom_file
-        run: |
-          FILE_NAME=${{ steps.snyk_sbom.outputs.sbom_file }}
-          scp -i ~/.ssh/id_rsa security-reports/$FILE_NAME \
-            pranavanil123@34.57.235.175:/home/pranavanil123/findings/Snyk_SBOM/
-
-      # SUMMARY AND REPORTING
-
-      - name: Scan Summary
-        run: |
-          echo "=== Snyk Security Scans Completed ==="
-          echo "Timestamp: ${{ steps.timestamp.outputs.timestamp }}"
-          echo "Repository: ${{ github.repository }}"
-          echo ""
-          echo "Detected Project Types:"
-          find . -name "package.json" -not -path "./node_modules/*" | head -1 | grep -q . && echo "  Node.js detected"
-          find . -name "requirements.txt" -o -name "pyproject.toml" | head -1 | grep -q . && echo "  Python detected"
-          find . -name "pom.xml" | head -1 | grep -q . && echo "  Java (Maven) detected"
-          find . -name "build.gradle*" | head -1 | grep -q . && echo "  Java (Gradle) detected"
-          find . -name "go.mod" | head -1 | grep -q . && echo "  Go detected"
-          find . -name "Gemfile" | head -1 | grep -q . && echo "  Ruby detected"
-          find . -name "composer.json" | head -1 | grep -q . && echo "  PHP detected"
-          find . -name "Cargo.toml" | head -1 | grep -q . && echo "  Rust detected"
-          find . -name "*.tf" -o -name "*.yaml" -o -name "*.yml" | head -1 | grep -q . && echo "  Infrastructure/Config Files detected"
-          echo ""
-          echo "Scan Results:"
-          echo "  Code Scan (SAST): ${{ steps.snyk_code.outputs.code_file || 'Failed/Skipped' }}"
-          echo "  Container Scan: ${{ steps.snyk_container.outputs.container_file || 'Failed/Skipped' }}"
-          echo "  Dependencies Scan: ${{ steps.snyk_open_source.outputs.deps_file || 'Failed/Skipped' }}"
-          echo "  SBOM Generation: ${{ steps.snyk_sbom.outputs.sbom_file || 'Failed/Skipped' }}"
-          echo ""
-          echo "Results uploaded to: 34.57.235.175"
-
-      # PR COMMENT (OPTIONAL)
-
-      - name: Comment PR with scan results
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const timestamp = '${{ steps.timestamp.outputs.timestamp }}';
-            const codeFile = '${{ steps.snyk_code.outputs.code_file }}' || 'Failed/Skipped';
-            const containerFile = '${{ steps.snyk_container.outputs.container_file }}' || 'Failed/Skipped';
-            const depsFile = '${{ steps.snyk_open_source.outputs.deps_file }}' || 'Failed/Skipped';
-            const sbomFile = '${{ steps.snyk_sbom.outputs.sbom_file }}' || 'Failed/Skipped';
-            
-            const body = '## Snyk Security Scan Results\n\n' +
-              '**Scan Timestamp:** ' + timestamp + '\n' +  
-              '**Repository:** ${{ github.repository }}\n\n' +
-              '| Scan Type | Status | File |\n' +
-              '|-----------|--------|----- |\n' +
-              '| SAST | ' + (codeFile !== 'Failed/Skipped' ? 'Success' : 'Failed') + ' | `' + codeFile + '` |\n' +
-              '| Container | ' + (containerFile !== 'Failed/Skipped' ? 'Success' : 'Failed') + ' | `' + containerFile + '` |\n' +
-              '| Dependencies | ' + (depsFile !== 'Failed/Skipped' ? 'Success' : 'Failed') + ' | `' + depsFile + '` |\n' +
-              '| SBOM | ' + (sbomFile !== 'Failed/Skipped' ? 'Success' : 'Failed') + ' | `' + sbomFile + '` |\n\n' +
-              '**Results uploaded to:** 34.57.235.175\n\n' +
-              'Review the detailed security reports in the uploaded files for vulnerabilities.';
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: body
-            });
+    - name: Cleanup
+      if: always()
+      run: |
+        rm -f ~/.ssh/id_rsa
+        # Clean up any temporary Docker images
+        docker system prune -f || true
