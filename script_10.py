@@ -1,13 +1,14 @@
-# Vulnerable Applications for Trivy SBOM and SCA Testing
+# Create comprehensive README files for each project
+readme_content = '''# Vulnerable Applications for Trivy SBOM and SCA Testing
 
 This collection contains intentionally vulnerable applications designed to test Trivy's Software Bill of Materials (SBOM) and Software Composition Analysis (SCA) capabilities.
 
 ## ⚠️ WARNING ⚠️
 **These applications contain INTENTIONAL SECURITY VULNERABILITIES and should NEVER be deployed in production environments. They are designed solely for security testing purposes.**
 
-## Projects Overvi ew
- 
-### 1. Node.js  Vulnerable Application (`vulnerable-node-app/`)
+## Projects Overview
+
+### 1. Node.js Vulnerable Application (`vulnerable-node-app/`)
 - **Language:** Node.js/JavaScript
 - **Package Manager:** npm
 - **Key Vulnerabilities:**
@@ -40,7 +41,7 @@ This collection contains intentionally vulnerable applications designed to test 
   - Struts 2.3.34 - Multiple RCE CVEs
   - And 15+ more vulnerable dependencies
 
-### 4. Go Vulnerable Application (`vulnerable-go-app/`) test
+### 4. Go Vulnerable Application (`vulnerable-go-app/`)
 - **Language:** Go
 - **Package Manager:** Go modules
 - **Key Vulnerabilities:**
@@ -48,7 +49,7 @@ This collection contains intentionally vulnerable applications designed to test 
   - Gorilla WebSocket 1.4.0 - CVE-2020-27813
   - Gogo Protobuf 1.3.1 - CVE-2021-3121
   - Various golang.org/x packages with multiple CVEs
-  - And 10+ more vulnerable dependencies 
+  - And 10+ more vulnerable dependencies
 
 ### 5. Docker Vulnerable Application (`vulnerable-docker-app/`)
 - **Type:** Container Image
@@ -201,3 +202,9 @@ MIT License - See LICENSE file for details.
 ---
 
 **Remember: These are INTENTIONALLY VULNERABLE applications. Never use in production!**
+'''
+
+with open("README.md", "w") as f:
+    f.write(readme_content)
+
+print("Created comprehensive README.md")
