@@ -23,5 +23,4 @@ pycrypto==2.6.1         # Deprecated with security issues
 pyopenssl==17.5.0       # Multiple TLS vulnerabilities
 nltk==3.3               # Arbitrary code execution via pickled models
 numpy==1.14.0           # Buffer overflow vulnerabilities
-pandas==0.23.0          # Multiple CVEs
 matplotlib==2.2.0       # Multiple CVEs
