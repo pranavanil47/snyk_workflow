@@ -40,7 +40,7 @@ jobs:
       # 4. Snyk Open Source (SCA) scan
       - name: Snyk Open Source test
         continue-on-error: true
-        run: snyk test --all-projects --json-file-output=snyk-oss.json
+        run: pip install -r requirements.txt && snyk test --all-projects --json-file-output=snyk-oss.json
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_API_TOKEN }}
 
