@@ -9,7 +9,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
 
 jobs:
   snyk:
@@ -33,7 +32,7 @@ jobs:
       # -------------------------------
       - name: Snyk Code test
         continue-on-error: true
-        run: snyk code test --json-file-output=snyk-code.json --sarif > snyk-code.sarif
+        run: snyk code test --json-file-output=snyk-code.json
 
       # -------------------------------
       # Run Snyk Open Source (SCA)
@@ -59,22 +58,7 @@ jobs:
       - name: Snyk Container test
         if: hashFiles('Dockerfile') != ''
         continue-on-error: true
-        run: snyk container test temp-snyk-image --file=Dockerfile --json-file-output=snyk-container.json --sarif > snyk-container.sarif
-
-      # -------------------------------
-      # Upload results into GitHub Code Scanning tab
-      # -------------------------------
-      - name: Upload Snyk Code SARIF
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: snyk-code.sarif
-
-      - name: Upload Snyk Container SARIF
-        if: always() && hashFiles('Dockerfile') != ''
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: snyk-container.sarif
+        run: snyk container test temp-snyk-image --file=Dockerfile --json-file-output=snyk-container.json
 
       # -------------------------------
       # Upload findings to remote VM
@@ -90,9 +74,9 @@ jobs:
         if: always()
         run: |
           REMOTE_DIR="/home/pranavanil123/snyk"
-          scp snyk-code.json pranavanil123@34.59.19.208:$REMOTE_DIR/
-          scp snyk-oss.json pranavanil123@34.59.19.208:$REMOTE_DIR/
-          scp snyk-iac.json pranavanil123@34.59.19.208:$REMOTE_DIR/
+          scp snyk-code.json pranavanil123@34.59.19.208:$REMOTE_DIR/ || true
+          scp snyk-oss.json pranavanil123@34.59.19.208:$REMOTE_DIR/ || true
+          scp snyk-iac.json pranavanil123@34.59.19.208:$REMOTE_DIR/ || true
           if [ -f snyk-container.json ]; then
             scp snyk-container.json pranavanil123@34.59.19.208:$REMOTE_DIR/
           fi
