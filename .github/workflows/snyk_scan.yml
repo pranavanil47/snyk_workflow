@@ -57,18 +57,18 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H 34.59.19.208 >> ~/.ssh/known_hosts
+          ssh-keyscan -H 34.57.235.175 >> ~/.ssh/known_hosts
 
       # Upload JSON reports to VM
       - name: Upload JSON reports to VM
         if: always()
         run: |
           REMOTE_DIR="/home/pranavanil123/snyk"
-          scp snyk-code.json pranavanil123@34.59.19.208:$REMOTE_DIR/ || true
-          scp snyk-oss.json pranavanil123@34.59.19.208:$REMOTE_DIR/ || true
-          scp snyk-iac.json pranavanil123@34.59.19.208:$REMOTE_DIR/ || true
+          scp snyk-code.json pranavanil123@34.57.235.175:$REMOTE_DIR/ || true
+          scp snyk-oss.json pranavanil123@34.57.235.175:$REMOTE_DIR/ || true
+          scp snyk-iac.json pranavanil123@34.57.235.175:$REMOTE_DIR/ || true
           if [ -f snyk-container.json ]; then
-            scp snyk-container.json pranavanil123@34.59.19.208:$REMOTE_DIR/
+            scp snyk-container.json pranavanil123@34.57.235.175:$REMOTE_DIR/
           fi
 
       # Cleanup SSH key
